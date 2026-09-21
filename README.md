@@ -1,6 +1,6 @@
 # M-Team 封面增強PRO (網格佈局、點擊放大、高級自定義)
 
-[![Version](https://img.shields.io/badge/version-1.3-blue.svg)](https://github.com/Sam5440/mteam_next_beautification)
+[![Version](https://img.shields.io/badge/version-1.8-blue.svg)](https://github.com/Sam5440/mteam_next_beautification)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Greasy Fork](https://img.shields.io/badge/Greasy%20Fork-下載安裝-orange.svg)](https://greasyfork.org/zh-CN/scripts/541917-m-team-%E5%B0%81%E9%9D%A2%E5%A2%9E%E5%BC%B7pro-%E7%B6%B2%E6%A0%BC%E4%BD%88%E5%B1%80-%E9%BB%9E%E6%93%8A%E6%94%BE%E5%A4%A7-%E9%AB%98%E7%B4%9A%E8%87%AA%E5%AE%9A%E7%BE%A9)
 

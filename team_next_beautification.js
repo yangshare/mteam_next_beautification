@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         M-Team 封面增強PRO (網格佈局、點擊放大、高級自定義)
 // @namespace    https://github.com/Sam5440/mteam_next_beautification
-// @version      1.6
-// @description  徹底革新M-Team種子列表為高度自定義卡片網格佈局。功能涵蓋點擊放大、按鈕同步、字體/顏色調節、大種子高亮、靈活佈局與多語言支持。最新版新增「Free」種子綠色高亮、下載新分頁、刷新延遲自定義、下載進度顯示等，所有設置均可持久化保存。
+// @version      1.8
+// @description  徹底革新M-Team種子列表為高度自定義卡片網格佈局。功能涵蓋點擊放大、按鈕同步、字體/顏色調節、大種子高亮、靈活佈局與多語言支持。最新版新增「Free」種子綠色高亮、下載新分頁、刷新延遲自定義、下載進度顯示等，並徹底修復新版UI(kp.m-team.cc)的封面懶加載問題，所有設置均可持久化保存。
 // @author       ChatGPT & Sam5440
 // @match        https://next.m-team.cc/*
+// @match        https://kp.m-team.cc/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -13,6 +14,7 @@
 // @homepageURL  https://github.com/Sam5440/mteam_next_beautification
 // @supportURL   https://github.com/Sam5440/mteam_next_beautification/issues
 // @license      MIT
+// @run-at       document-start
 // @downloadURL https://update.greasyfork.org/scripts/541917/M-Team%20%E5%B0%81%E9%9D%A2%E5%A2%9E%E5%BC%B7PRO%20%28%E7%B6%B2%E6%A0%BC%E4%BD%88%E5%B1%80%E3%80%81%E9%BB%9E%E6%93%8A%E6%94%BE%E5%A4%A7%E3%80%81%E9%AB%98%E7%B4%9A%E8%87%AA%E5%AE%9A%E7%BE%A9%29.user.js
 // @updateURL https://update.greasyfork.org/scripts/541917/M-Team%20%E5%B0%81%E9%9D%A2%E5%A2%9E%E5%BC%B7PRO%20%28%E7%B6%B2%E6%A0%BC%E4%BD%88%E5%B1%80%E3%80%81%E9%BB%9E%E6%93%8A%E6%94%BE%E5%A4%A7%E3%80%81%E9%AB%98%E7%B4%9A%E8%87%AA%E5%AE%9A%E7%BE%A9%29.meta.js
 // ==/UserScript==
@@ -21,7 +23,7 @@
     'use strict';
 
     // --- 版本控制 ---
-    const SCRIPT_VERSION = '1.6'; // 版本號更新到 1.6
+    const SCRIPT_VERSION = '1.8'; // 版本號更新到 1.8
     let latestVersion = '檢查中...';
 
     // --- 配置和存儲鍵 ---
@@ -283,6 +285,248 @@
     //  佈局轉換核心函數
     // ===================================================================
 
+    // ===================================================================
+    //  封面懶加載處理（適配新版 UI kp.m-team.cc）
+    // ===================================================================
+    // 經實測（2026-09，kp.m-team.cc）：種子列表由 https://api.m-team.cc/api/torrent/search
+    // 接口返回，每條種子的封面地址在 imageList 數組的第一個元素中；
+    // 行內 <img class="torrent-list__thumbnail"> 的 src 由 React 渲染時直接寫入真實地址。
+    // 卡片模式隱藏原始表格後，用戶端存在一種場景：React 對已掛載過的列表回退渲染
+    // emptyImg 佔位圖（如翻頁後返回、某些刷新路徑），且不會再回填真實地址，
+    // 克隆封面因此全部變成佔位圖。對策：
+    //   1. 攔截 XHR / fetch，從 /api/torrent/search 響應中提取 id -> imageList[0] 映射並緩存；
+    //   2. 卡片取封面時：行內 img 的真實地址優先，佔位圖/空地址時回退到接口緩存；
+    //   3. 監聽原始表格變化，站點若回填真實地址則自動同步到克隆封面。
+
+    const LAZY_SRC_ATTRIBUTES = ['data-src', 'data-original', 'data-lazy-src', 'data-echo', 'data-url'];
+    const PLACEHOLDER_MARKERS = ['emptyImg', 'placeholder', 'blank'];
+    const imageCloneMap = new Map(); // 原始行 tr -> 卡片中的克隆 img
+    const imageURLCache = new Map(); // 種子 id (字符串) -> 真實封面地址（來自接口響應）
+    let imageAttrObserver = null;
+    let imageSyncTimer = null;
+
+    function isPlaceholderSrc(src) {
+        if (!src) return true;
+        const s = String(src).trim();
+        if (!s || s === 'about:blank') return true;
+        if (s.startsWith('data:')) return true;
+        // 站點的 emptyImg 佔位圖（React 渲染回退時的 src）
+        if (PLACEHOLDER_MARKERS.some(marker => s.includes(marker))) return true;
+        return false;
+    }
+
+    // 規範化圖片地址：相對路徑轉絕對
+    function normalizeImageUrl(value) {
+        const s = String(value || '').trim();
+        if (!s) return '';
+        try { return new URL(s, location.href).href; } catch (e) { return s; }
+    }
+
+    // 從 /api/torrent/search 響應 JSON 中提取「種子 id -> 封面地址」映射。
+    // 響應結構：data.data 為種子數組，每項 { id, imageList: [封面URL, ...], ... }
+    function extractCoverMapFromJson(data) {
+        const result = new Map();
+        if (!data || typeof data !== 'object') return result;
+        let list = null;
+        const d = data.data;
+        if (Array.isArray(d)) list = d;
+        else if (d && typeof d === 'object') {
+            if (Array.isArray(d.data)) list = d.data;
+            else if (Array.isArray(d.list)) list = d.list;
+            else if (Array.isArray(d.torrents)) list = d.torrents;
+        }
+        if (!Array.isArray(list)) return result;
+        for (const item of list) {
+            if (!item || typeof item !== 'object') continue;
+            const id = item.id != null ? String(item.id) : null;
+            if (!id) continue;
+            const cover = Array.isArray(item.imageList) ? item.imageList[0]
+                : (typeof item.imageList === 'string' && item.imageList ? item.imageList : null);
+            if (cover && !isPlaceholderSrc(cover)) {
+                result.set(id, normalizeImageUrl(cover));
+            }
+        }
+        return result;
+    }
+
+    // 將網絡層解析出的封面映射合併到行級緩存：通過行的詳情鏈接 id 對號入座
+    function mergeCoverCacheIntoRows() {
+        if (imageURLCache.size === 0) return;
+        document.querySelectorAll('table.w-full.table-fixed tbody tr').forEach(row => {
+            if (imageURLCache.has(row)) return;
+            const link = row.querySelector('a[href^="/detail/"]');
+            if (!link) return;
+            const m = link.href.match(/\/detail\/(\d+)/);
+            const id = m ? m[1] : null;
+            const fromApi = id ? imageURLCache.get(id) : null;
+            if (fromApi) imageURLCache.set(row, fromApi);
+        });
+    }
+
+    // 攔截 XHR / fetch：在響應階段解析出真實封面地址緩存起來，
+    // 卡片渲染時無需依賴站點自身的渲染時序。
+    function installNetworkCoverInterceptor() {
+        if (installNetworkCoverInterceptor._installed) return;
+        installNetworkCoverInterceptor._installed = true;
+
+        // 注意 API 主機可能是 api.m-team.cc 或 api.m-team.io（站點會切換），只匹配路徑
+        const isTorrentSearchUrl = (url) => /\/api\/torrent\/search(\?|$)/.test(String(url || '').split('#')[0]);
+
+        const handleJson = (data) => {
+            try {
+                const coverMap = extractCoverMapFromJson(data);
+                coverMap.forEach((url, id) => imageURLCache.set(id, url));
+                if (coverMap.size > 0) {
+                    mergeCoverCacheIntoRows();
+                    scheduleImageSync();
+                }
+            } catch (e) { /* 解析失敗不影響原請求 */ }
+        };
+
+        // 站點用 XHR（axios）調用接口，fetch 攔截作為兜底
+        const OriginalXHR = window.XMLHttpRequest;
+        const originalOpen = OriginalXHR.prototype.open;
+        const originalSend = OriginalXHR.prototype.send;
+        OriginalXHR.prototype.open = function (method, url, ...rest) {
+            this._tmUrl = url;
+            return originalOpen.call(this, method, url, ...rest);
+        };
+        OriginalXHR.prototype.send = function (...sendArgs) {
+            this.addEventListener('load', () => {
+                try {
+                    if (!isTorrentSearchUrl(this._tmUrl)) return;
+                    const data = JSON.parse(this.responseText);
+                    handleJson(data);
+                } catch (e) { /* 忽略非 JSON 響應 */ }
+            });
+            return originalSend.apply(this, sendArgs);
+        };
+
+        const originalFetch = window.fetch;
+        window.fetch = function (...args) {
+            const url = (typeof args[0] === 'string') ? args[0] : (args[0] && args[0].url) || '';
+            const promise = originalFetch.apply(this, args);
+            if (isTorrentSearchUrl(url)) {
+                promise.then(response => {
+                    try {
+                        response.clone().json().then(handleJson).catch(() => {});
+                    } catch (e) { /* 忽略 */ }
+                }).catch(() => {});
+            }
+            return promise;
+        };
+    }
+    // 判斷 src 是否為站點的佔位圖（emptyImg 等）
+    function isPlaceholderSrc(src) {
+        if (!src) return true;
+        const s = String(src).trim();
+        if (!s || s === 'about:blank') return true;
+        if (s.startsWith('data:')) return true;
+        // 站點的 emptyImg 佔位圖（React 渲染回退時的 src）
+        if (PLACEHOLDER_MARKERS.some(marker => s.includes(marker))) return true;
+        return false;
+    }
+
+    function resolveImageUrl(imgEl, row) {
+        if (!imgEl) return '';
+        const currentSrc = imgEl.currentSrc || imgEl.src || '';
+        if (!isPlaceholderSrc(currentSrc)) return currentSrc;
+        for (const attr of LAZY_SRC_ATTRIBUTES) {
+            const value = imgEl.getAttribute(attr);
+            if (value && !isPlaceholderSrc(value)) {
+                try { return new URL(value.trim(), location.href).href; } catch (e) { return value.trim(); }
+            }
+        }
+        const srcset = imgEl.getAttribute('srcset') || imgEl.getAttribute('data-srcset');
+        if (srcset) {
+            const firstCandidate = srcset.split(',')[0].trim().split(/\s+/)[0];
+            if (firstCandidate && !isPlaceholderSrc(firstCandidate)) return firstCandidate;
+        }
+        // 兜底：掃描所有 data-* 屬性，找出值像圖片地址的（適配未知的新懶加載屬性名）
+        if (imgEl.attributes) {
+            for (const attr of imgEl.attributes) {
+                if (!attr.name.startsWith('data-')) continue;
+                if (LAZY_SRC_ATTRIBUTES.includes(attr.name)) continue;
+                if (looksLikeImageUrl(attr.value)) {
+                    try { return new URL(attr.value.trim(), location.href).href; } catch (e) { return attr.value.trim(); }
+                }
+            }
+        }
+        return '';
+    }
+
+    function findTorrentImage(row) {
+        const img = row.querySelector('img.torrent-list__thumbnail')
+            || row.querySelector('td:first-child img:not(.box_img)');
+        if (img) return img;
+        // 防禦：新版 UI 若改用背景圖渲染封面，則從 background-image 合成一個 img
+        const bgEl = row.querySelector('td:first-child [style*="background-image"]')
+            || row.querySelector('[style*="background-image"]');
+        if (bgEl) {
+            const match = (bgEl.getAttribute('style') || '').match(/url\((['"]?)(.*?)\1\)/i);
+            if (match && match[2] && !isPlaceholderSrc(match[2])) {
+                const synthetic = document.createElement('img');
+                try { synthetic.src = new URL(match[2], location.href).href; } catch (e) { synthetic.src = match[2]; }
+                return synthetic;
+            }
+        }
+        // 兜底：行內實在找不到 img，但網絡層已知封面地址，合成一個 img 供卡片使用
+        const link = row.querySelector('a[href^="/detail/"]');
+        const m = link ? link.href.match(/\/detail\/(\d+)/) : null;
+        const fromApi = m ? imageURLCache.get(m[1]) : null;
+        if (fromApi) {
+            const synthetic = document.createElement('img');
+            synthetic.src = fromApi;
+            return synthetic;
+        }
+        return null;
+    }
+
+    // 防抖的行級同步：無論站點是寫 src、寫 data-*、改 background-image，
+    // 還是整個替換了封面元素，都重新解析該行的真實封面地址並同步到卡片。
+    // 行內 img 是佔位圖/空地址時，回退使用接口緩存中的真實封面。
+    function scheduleImageSync() {
+        if (imageSyncTimer) clearTimeout(imageSyncTimer);
+        imageSyncTimer = setTimeout(() => {
+            imageSyncTimer = null;
+            mergeCoverCacheIntoRows();
+            for (const [row, clonedImg] of imageCloneMap) {
+                if (!clonedImg.isConnected) continue;
+                if (!row.isConnected) { imageCloneMap.delete(row); continue; }
+                const link = row.querySelector('a[href^="/detail/"]');
+                const m = link ? link.href.match(/\/detail\/(\d+)/) : null;
+                const img = findTorrentImage(row);
+                const url = resolveImageUrl(img, row)
+                    || imageURLCache.get(row)
+                    || (m ? imageURLCache.get(m[1]) : null)
+                    || '';
+                if (url && url !== clonedImg.src) clonedImg.src = url;
+            }
+        }, 120);
+    }
+
+    function ensureImageAttrObserver(table) {
+        if (imageAttrObserver) imageAttrObserver.disconnect();
+        imageAttrObserver = new MutationObserver(scheduleImageSync);
+        // 同時監聽屬性（src / data-* / style）與子節點變動，覆蓋各種懶加載實現
+        imageAttrObserver.observe(table, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: [...LAZY_SRC_ATTRIBUTES, 'src', 'srcset', 'data-srcset', 'style', 'class']
+        });
+    }
+
+    function disconnectImageAttrObserver() {
+        if (imageSyncTimer) { clearTimeout(imageSyncTimer); imageSyncTimer = null; }
+        if (imageAttrObserver) {
+            imageAttrObserver.disconnect();
+            imageAttrObserver = null;
+        }
+        imageCloneMap.clear();
+        imageURLCache.clear();
+    }
+
     function transformToCardLayout() {
         const table = document.querySelector('table.w-full.table-fixed');
         if (!table) return;
@@ -302,12 +546,19 @@
             gap: 20px;
         `;
         cardContainer.innerHTML = '';
+        imageCloneMap.clear();
+        mergeCoverCacheIntoRows();
 
         const rows = table.querySelectorAll('tbody > tr');
         rows.forEach(row => {
             const card = createCardFromRow(row);
-            if (card) cardContainer.appendChild(card);
+            if (card) {
+                cardContainer.appendChild(card);
+                if (card._tmImageSource) imageCloneMap.set(row, card._tmImageSource);
+            }
         });
+
+        ensureImageAttrObserver(table);
     }
 
     function calculateRelativeTime(dateString) {
@@ -327,7 +578,7 @@
     }
 
     function createCardFromRow(row) {
-        const imageEl = row.querySelector('img.torrent-list__thumbnail');
+        const imageEl = findTorrentImage(row);
         const titleLink = row.querySelector('a[href^="/detail/"]');
         if (!titleLink) return null;
 
@@ -385,36 +636,69 @@
         const imageAspectRatio = parseFloat(CARD_ASPECT_RATIO.split('/')[0]) / parseFloat(CARD_ASPECT_RATIO.split('/')[1]);
         imageWrapper.style.cssText = `position: relative; width: 100%; padding-top: ${100 / imageAspectRatio}%; overflow: hidden; background-color: #f0f2f5; cursor: pointer;`;
 
-        if (imageEl) {
-            const newImg = imageEl.cloneNode(true);
+        const attachCoverBehaviors = (coverImg) => {
+            if (coverImg) {
+                card._tmImageSource = coverImg; // 供 transformToCardLayout 建立行級同步映射
+                card.onmouseover = () => {
+                    coverImg.style.transform = 'scale(1.05)';
+                    card.style.transform = 'translateY(-5px)';
+                    card.style.boxShadow = isFreeTorrent ? freeGreenHoverShadow : defaultHoverShadow;
+                    if (!isFreeTorrent) card.style.borderColor = '#d9d9d9';
+                };
+                card.onmouseout = () => {
+                    coverImg.style.transform = 'scale(1)';
+                    card.style.transform = 'translateY(0)';
+                    card.style.boxShadow = isFreeTorrent ? freeGreenShadow : defaultShadow;
+                    card.style.borderColor = isFreeTorrent ? freeGreen : defaultBorder;
+                };
+                imageWrapper.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); createLightbox(coverImg.src); });
+            } else {
+                imageWrapper.textContent = "無圖片";
+                imageWrapper.style.cssText += 'display: flex; align-items: center; justify-content: center; color: #ccc;';
+                card.onmouseover = () => {
+                    card.style.transform = 'translateY(-5px)';
+                    card.style.boxShadow = isFreeTorrent ? freeGreenHoverShadow : defaultHoverShadow;
+                    if (!isFreeTorrent) card.style.borderColor = '#d9d9d9';
+                };
+                card.onmouseout = () => {
+                    card.style.transform = 'translateY(0)';
+                    card.style.boxShadow = isFreeTorrent ? freeGreenShadow : defaultShadow;
+                    card.style.borderColor = isFreeTorrent ? freeGreen : defaultBorder;
+                };
+            }
+        };
+
+        const buildCoverImg = (src, sourceElForClone) => {
+            const newImg = sourceElForClone ? sourceElForClone.cloneNode(true) : document.createElement('img');
+            if (src) {
+                newImg.src = src;
+                newImg.loading = 'eager';
+                newImg.decoding = 'async';
+            }
+            if (newImg.nodeType === 1) {
+                newImg.removeAttribute('srcset');
+                newImg.removeAttribute('data-srcset');
+            }
             newImg.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform 0.3s ease;`;
             imageWrapper.appendChild(newImg);
-            card.onmouseover = () => {
-                newImg.style.transform = 'scale(1.05)';
-                card.style.transform = 'translateY(-5px)';
-                card.style.boxShadow = isFreeTorrent ? freeGreenHoverShadow : defaultHoverShadow;
-                if (!isFreeTorrent) card.style.borderColor = '#d9d9d9';
-            };
-            card.onmouseout = () => {
-                newImg.style.transform = 'scale(1)';
-                card.style.transform = 'translateY(0)';
-                card.style.boxShadow = isFreeTorrent ? freeGreenShadow : defaultShadow;
-                card.style.borderColor = isFreeTorrent ? freeGreen : defaultBorder;
-            };
-            imageWrapper.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); createLightbox(newImg.src); });
+            return newImg;
+        };
+
+        if (imageEl) {
+            // 行內 img 有真實地址時直接用；佔位圖/空地址則回退接口緩存的真實封面
+            const link = row.querySelector('a[href^="/detail/"]');
+            const m = link ? link.href.match(/\/detail\/(\d+)/) : null;
+            const resolvedSrc = resolveImageUrl(imageEl, row)
+                || imageURLCache.get(row)
+                || (m ? imageURLCache.get(m[1]) : null)
+                || '';
+            attachCoverBehaviors(buildCoverImg(resolvedSrc, imageEl));
         } else {
-             imageWrapper.textContent = "無圖片";
-             imageWrapper.style.cssText += 'display: flex; align-items: center; justify-content: center; color: #ccc;';
-             card.onmouseover = () => {
-                card.style.transform = 'translateY(-5px)';
-                card.style.boxShadow = isFreeTorrent ? freeGreenHoverShadow : defaultHoverShadow;
-                if (!isFreeTorrent) card.style.borderColor = '#d9d9d9';
-            };
-            card.onmouseout = () => {
-                card.style.transform = 'translateY(0)';
-                card.style.boxShadow = isFreeTorrent ? freeGreenShadow : defaultShadow;
-                card.style.borderColor = isFreeTorrent ? freeGreen : defaultBorder;
-            };
+            // 行內實在找不到 img 時，使用接口緩存的真實封面地址合成一個
+            const link = row.querySelector('a[href^="/detail/"]');
+            const m = link ? link.href.match(/\/detail\/(\d+)/) : null;
+            const fallbackUrl = imageURLCache.get(row) || (m ? imageURLCache.get(m[1]) : null) || '';
+            attachCoverBehaviors(fallbackUrl ? buildCoverImg(fallbackUrl, null) : null);
         }
 
         if (settings.tagPosition === 'cover' && otherTags.length > 0) {
@@ -566,6 +850,7 @@
     }
 
     function revertToTableLayout() {
+        disconnectImageAttrObserver();
         const cardContainer = document.getElementById('tm-card-container');
         if (cardContainer) cardContainer.remove();
         const table = document.querySelector('table.w-full.table-fixed');
@@ -659,10 +944,14 @@
         settingsPanel.style.cssText = `position: absolute; top: 110%; right: 0; background: #fff; border: 1px solid #ccc; border-radius: 8px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; display: ${settings.settingsVisible ? 'flex' : 'none'}; flex-direction: column; gap: 15px; width: 480px; max-height: 80vh; overflow-y: auto;`;
 
         // --- NEW: 在頂部導航欄新增設置按鈕 ---
-        const navMenu = document.querySelector('ul.ant-menu-overflow.ant-menu-root');
+        // 選擇器同時兼容新舊版 UI：新版側邊欄是 ul.ant-menu-root.ant-menu-inline（無 overflow 類）
+        const navMenu = document.querySelector('ul.ant-menu-overflow.ant-menu-root')
+            || document.querySelector('ul.ant-menu-root.ant-menu-inline');
         if (navMenu) {
             const menuItem = document.createElement('li');
-            menuItem.className = 'ant-menu-overflow-item ant-menu-item ant-menu-item-only-child';
+            menuItem.className = navMenu.className.includes('ant-menu-overflow')
+                ? 'ant-menu-overflow-item ant-menu-item ant-menu-item-only-child'
+                : 'ant-menu-item ant-menu-item-only-child';
             menuItem.style.cssText = 'opacity: 1; order: 99;'; // 使用高 order 確保在末尾
             const contentSpan = document.createElement('span');
             contentSpan.className = 'ant-menu-title-content';
@@ -881,6 +1170,9 @@
     }
 
     function init() {
+        // 必須最先安裝：攔截站點的 browse/search 接口響應，提前解析封面真實地址
+        installNetworkCoverInterceptor();
+
         const styleSheet = document.createElement("style");
         styleSheet.type = "text/css";
         styleSheet.innerText = `@keyframes tm-blink { 50% { opacity: 0.5; } }`;
@@ -893,7 +1185,11 @@
         }
 
         const checkReady = setInterval(() => {
-            if (document.querySelector('table.w-full.table-fixed tbody tr') && document.querySelector('ul.ant-menu-overflow.ant-menu-root')) {
+            const tableReady = document.querySelector('table.w-full.table-fixed tbody tr');
+            // 兼容新舊版 UI 的菜單選擇器（新版側邊欄無 ant-menu-overflow 類）
+            const menuReady = document.querySelector('ul.ant-menu-overflow.ant-menu-root')
+                || document.querySelector('ul.ant-menu-root.ant-menu-inline');
+            if (tableReady && menuReady) {
                 clearInterval(checkReady);
                 createUI();
                 checkForUpdates();
