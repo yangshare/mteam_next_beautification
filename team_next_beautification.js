@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         M-Team 封面增強PRO (網格佈局、點擊放大、高級自定義)
-// @namespace    https://github.com/Sam5440/mteam_next_beautification
-// @version      1.8
+// @namespace    https://github.com/yangshare/mteam_next_beautification
+// @version      1.8.1
 // @description  徹底革新M-Team種子列表為高度自定義卡片網格佈局。功能涵蓋點擊放大、按鈕同步、字體/顏色調節、大種子高亮、靈活佈局與多語言支持。最新版新增「Free」種子綠色高亮、下載新分頁、刷新延遲自定義、下載進度顯示等，並徹底修復新版UI(kp.m-team.cc)的封面懶加載問題，所有設置均可持久化保存。
 // @author       ChatGPT & Sam5440
 // @match        https://next.m-team.cc/*
@@ -11,19 +11,17 @@
 // @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @connect      raw.githubusercontent.com
-// @homepageURL  https://github.com/Sam5440/mteam_next_beautification
-// @supportURL   https://github.com/Sam5440/mteam_next_beautification/issues
+// @homepageURL  https://github.com/yangshare/mteam_next_beautification
+// @supportURL   https://github.com/yangshare/mteam_next_beautification/issues
 // @license      MIT
 // @run-at       document-start
-// @downloadURL https://update.greasyfork.org/scripts/541917/M-Team%20%E5%B0%81%E9%9D%A2%E5%A2%9E%E5%BC%B7PRO%20%28%E7%B6%B2%E6%A0%BC%E4%BD%88%E5%B1%80%E3%80%81%E9%BB%9E%E6%93%8A%E6%94%BE%E5%A4%A7%E3%80%81%E9%AB%98%E7%B4%9A%E8%87%AA%E5%AE%9A%E7%BE%A9%29.user.js
-// @updateURL https://update.greasyfork.org/scripts/541917/M-Team%20%E5%B0%81%E9%9D%A2%E5%A2%9E%E5%BC%B7PRO%20%28%E7%B6%B2%E6%A0%BC%E4%BD%88%E5%B1%80%E3%80%81%E9%BB%9E%E6%93%8A%E6%94%BE%E5%A4%A7%E3%80%81%E9%AB%98%E7%B4%9A%E8%87%AA%E5%AE%9A%E7%BE%A9%29.meta.js
 // ==/UserScript==
 
 (function() {
     'use strict';
 
     // --- 版本控制 ---
-    const SCRIPT_VERSION = '1.8'; // 版本號更新到 1.8
+    const SCRIPT_VERSION = '1.8.1'; // 版本號更新到 1.8.1
     let latestVersion = '檢查中...';
 
     // --- 配置和存儲鍵 ---
@@ -969,9 +967,9 @@
         const panelHeader = document.createElement('div');
         panelHeader.style.cssText = 'padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; text-align: center;';
         const homepageLink = document.createElement('a');
-        homepageLink.href = 'https://github.com/Sam5440/mteam_next_beautification';
+        homepageLink.href = 'https://github.com/yangshare/mteam_next_beautification';
         homepageLink.target = '_blank';
-        homepageLink.textContent = 'Sam5440/mteam_next_beautification';
+        homepageLink.textContent = 'yangshare/mteam_next_beautification';
         homepageLink.style.cssText = 'font-size: 14px; font-weight: bold; color: #1677ff; text-decoration: none;';
         const homepageLabel = document.createElement('label');
         homepageLabel.textContent = t('projectHomepage') + ' ';
@@ -1101,7 +1099,7 @@
     function checkForUpdates() {
         GM_xmlhttpRequest({
             method: 'GET',
-            url: 'https://raw.githubusercontent.com/Sam5440/mteam_next_beautification/main/version',
+            url: 'https://raw.githubusercontent.com/yangshare/mteam_next_beautification/main/version',
             onload: function(response) {
                 if (response.status === 200) {
                     const fetchedVersion = response.responseText.trim();
@@ -1112,7 +1110,7 @@
                         if(versionDiv && !document.getElementById('tm-update-indicator')) {
                              const updateIndicator = document.createElement('a');
                              updateIndicator.id = 'tm-update-indicator';
-                             updateIndicator.href = 'https://github.com/Sam5440/mteam_next_beautification';
+                             updateIndicator.href = 'https://github.com/yangshare/mteam_next_beautification';
                              updateIndicator.target = '_blank';
                              updateIndicator.title = `點擊前往項目主頁查看更新\n(v${latestVersion} is available)`;
                              updateIndicator.textContent = ` ${t('updateAvailable')}`;
