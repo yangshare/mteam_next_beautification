@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         M-Team 封面增強PRO (網格佈局、點擊放大、高級自定義)
 // @namespace    https://github.com/yangshare/mteam_next_beautification
-// @version      1.8.1
+// @version      1.8.2
 // @description  徹底革新M-Team種子列表為高度自定義卡片網格佈局。功能涵蓋點擊放大、按鈕同步、字體/顏色調節、大種子高亮、靈活佈局與多語言支持。最新版新增「Free」種子綠色高亮、下載新分頁、刷新延遲自定義、下載進度顯示等，並徹底修復新版UI(kp.m-team.cc)的封面懶加載問題，所有設置均可持久化保存。
 // @author       ChatGPT & Sam5440
 // @match        https://next.m-team.cc/*
@@ -21,7 +21,7 @@
     'use strict';
 
     // --- 版本控制 ---
-    const SCRIPT_VERSION = '1.8.1'; // 版本號更新到 1.8.1
+    const SCRIPT_VERSION = '1.8.2'; // 版本號更新到 1.8.2
     let latestVersion = '檢查中...';
 
     // --- 配置和存儲鍵 ---
@@ -60,37 +60,40 @@
     };
 
     // --- 默認值 ---
+    // 注意：鍵名必須與 KEYS 的鍵（settings 變量名）一致，
+    // 加載循環用 DEFAULTS[key]（key 為 KEYS 的鍵）取默認值，
+    // 若此處寫成 [KEYS.xxx]（存儲名），cardLayout 等不同名鍵會取到 undefined。
     const DEFAULTS = {
-        [KEYS.cardLayout]: true,
-        [KEYS.scale]: 2.5,
-        [KEYS.tagPosition]: 'cover',
-        [KEYS.statsFontSize]: 14,
-        [KEYS.statsFontColor]: '#333333',
-        [KEYS.sizeFontSize]: 16,
-        [KEYS.sizeFontColor]: '#333333',
-        [KEYS.relativeTimeFontSize]: 16,
-        [KEYS.relativeTimeFontColor]: '#888888',
-        [KEYS.absoluteTimeFontSize]: 12,
-        [KEYS.absoluteTimeFontColor]: '#AAAAAA',
-        [KEYS.actionButtonScale]: 1.2,
-        [KEYS.largeTorrentThreshold]: 20,
-        [KEYS.contentWidthMode]: 'max-width',
-        [KEYS.contentMaxWidthValue]: '1400px',
-        [KEYS.contentFixedViewWidthValue]: '1200px',
-        [KEYS.contentMaxWidthMarginLeft]: 'auto',
-        [KEYS.contentFixedViewWidthMarginLeft]: 'auto',
-        [KEYS.settingsVisible]: false,
-        [KEYS.showStatsOnNewLine]: false,
-        [KEYS.timeGapPx]: 4,
-        [KEYS.statsPosition]: 'left',
-        [KEYS.timeLayout]: 'inline',
-        [KEYS.relativeTimePrefix]: '发布于 ',
-        [KEYS.usePreciseRelativeTime]: false,
-        [KEYS.lastRunVersion]: '0',
-        [KEYS.showCounter]: true,
-        [KEYS.refreshDelay]: 500,
-        [KEYS.language]: 'zh-TW',
-        [KEYS.downloadInNewTab]: false,
+        cardLayout: true,
+        scale: 2.5,
+        tagPosition: 'cover',
+        statsFontSize: 14,
+        statsFontColor: '#333333',
+        sizeFontSize: 16,
+        sizeFontColor: '#333333',
+        relativeTimeFontSize: 16,
+        relativeTimeFontColor: '#888888',
+        absoluteTimeFontSize: 12,
+        absoluteTimeFontColor: '#AAAAAA',
+        actionButtonScale: 1.2,
+        largeTorrentThreshold: 20,
+        contentWidthMode: 'max-width',
+        contentMaxWidthValue: '1400px',
+        contentFixedViewWidthValue: '1200px',
+        contentMaxWidthMarginLeft: 'auto',
+        contentFixedViewWidthMarginLeft: 'auto',
+        settingsVisible: false,
+        showStatsOnNewLine: false,
+        timeGapPx: 4,
+        statsPosition: 'left',
+        timeLayout: 'inline',
+        relativeTimePrefix: '发布于 ',
+        usePreciseRelativeTime: false,
+        lastRunVersion: '0',
+        showCounter: true,
+        refreshDelay: 500,
+        language: 'zh-TW',
+        downloadInNewTab: false,
     };
 
     // --- 多語言支持 ---
