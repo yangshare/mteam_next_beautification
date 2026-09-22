@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         M-Team 封面增強PRO (網格佈局、點擊放大、高級自定義)
 // @namespace    https://github.com/yangshare/mteam_next_beautification
-// @version      1.8.2
+// @version      1.9
 // @description  徹底革新M-Team種子列表為高度自定義卡片網格佈局。功能涵蓋點擊放大、按鈕同步、字體/顏色調節、大種子高亮、靈活佈局與多語言支持。最新版新增「Free」種子綠色高亮、下載新分頁、刷新延遲自定義、下載進度顯示等，並徹底修復新版UI(kp.m-team.cc)的封面懶加載問題，所有設置均可持久化保存。
 // @author       ChatGPT & Sam5440
 // @match        https://next.m-team.cc/*
@@ -21,7 +21,7 @@
     'use strict';
 
     // --- 版本控制 ---
-    const SCRIPT_VERSION = '1.8.2'; // 版本號更新到 1.8.2
+    const SCRIPT_VERSION = '1.9'; // 版本號更新到 1.9
     let latestVersion = '檢查中...';
 
     // --- 配置和存儲鍵 ---
@@ -29,6 +29,7 @@
     const KEYS = {
         cardLayout: 'cardLayoutEnabled',
         scale: 'imageEnlargementScale',
+        gridColumns: 'gridColumns',
         tagPosition: 'tagPosition',
         statsFontSize: 'statsFontSize',
         statsFontColor: 'statsFontColor',
@@ -66,6 +67,7 @@
     const DEFAULTS = {
         cardLayout: true,
         scale: 2.5,
+        gridColumns: 'auto',
         tagPosition: 'cover',
         statsFontSize: 14,
         statsFontColor: '#333333',
@@ -103,6 +105,8 @@
             'displayMode': '顯示模式:',
             'enableCardGrid': '啟用卡片網格佈局',
             'coverSize': '封面大小:',
+            'gridColumns': '每行列數:',
+            'gridColAuto': '自動 (依螢幕寬度)',
             'tagPosition': '標籤位置:',
             'tagPosCover': '封面左上角',
             'tagPosTitle': '標題前方',
@@ -147,6 +151,8 @@
             'displayMode': '显示模式:',
             'enableCardGrid': '启用卡片网格布局',
             'coverSize': '封面大小:',
+            'gridColumns': '每行列数:',
+            'gridColAuto': '自动 (依屏幕宽度)',
             'tagPosition': '标签位置:',
             'tagPosCover': '封面左上角',
             'tagPosTitle': '标题前方',
@@ -191,6 +197,8 @@
             'displayMode': 'Display Mode:',
             'enableCardGrid': 'Enable Card Grid Layout',
             'coverSize': 'Cover Size:',
+            'gridColumns': 'Columns per row:',
+            'gridColAuto': 'Auto (by screen width)',
             'tagPosition': 'Tag Position:',
             'tagPosCover': 'Top-left of cover',
             'tagPosTitle': 'Before title',
@@ -541,9 +549,14 @@
         }
 
         const baseCardWidth = ORIGINAL_IMAGE_BASE_DIMENSION * settings.scale * 2.5;
+        // 列數模式：固定列數（2-6）或 auto（依螢幕寬度自適應）
+        const fixedCols = parseInt(settings.gridColumns, 10);
+        const columnsCss = Number.isInteger(fixedCols) && fixedCols >= 2 && fixedCols <= 6
+            ? `repeat(${fixedCols}, minmax(0, 1fr))`
+            : `repeat(auto-fill, minmax(${Math.max(baseCardWidth, 280)}px, 1fr))`;
         cardContainer.style.cssText = `
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(${Math.max(baseCardWidth, 280)}px, 1fr));
+            grid-template-columns: ${columnsCss};
             gap: 20px;
         `;
         cardContainer.innerHTML = '';
@@ -1040,6 +1053,14 @@
         settingsPanel.appendChild(createSettingRow(t('displayMode'), ...createCheckbox('cardLayout', t('enableCardGrid'))));
         settingsPanel.appendChild(createSettingRow(t('coverSize'), createSelect('scale', [1, 1.5, 2, 2.5, 3, 3.5, 4].map(s => ({v: s, t: `${s}x`})))));
         settingsPanel.appendChild(createSettingRow(t('tagPosition'), createSelect('tagPosition', [{v: 'cover', t: t('tagPosCover')}, {v: 'title', t: t('tagPosTitle')}])));
+        settingsPanel.appendChild(createSettingRow(t('gridColumns'), createSelect('gridColumns', [
+            {v: 'auto', t: t('gridColAuto')},
+            {v: '2', t: '2'},
+            {v: '3', t: '3'},
+            {v: '4', t: '4'},
+            {v: '5', t: '5'},
+            {v: '6', t: '6'},
+        ])));
         settingsPanel.appendChild(createSettingRow(t('sizeFont'), ...createNumberInput('sizeFontSize', 10, 24, 1, 'px'), createColorInput('sizeFontColor')));
         settingsPanel.appendChild(createSettingRow(t('statsFont'), ...createNumberInput('statsFontSize', 10, 20, 1, 'px'), createColorInput('statsFontColor')));
         settingsPanel.appendChild(createSettingRow(t('relativeTimeFont'), ...createNumberInput('relativeTimeFontSize', 10, 20, 1, 'px'), createColorInput('relativeTimeFontColor')));
